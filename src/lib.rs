@@ -40,6 +40,22 @@ impl TrayItem {
         self.0.add_label(label)
     }
 
+    #[cfg(target_os = "windows")]
+    pub fn set_icon_click_callback<F>(&mut self, cb: F) -> Result<(), TIError>
+    where
+        F: Fn() + Send + 'static,
+    {
+        self.0.set_icon_click_callback(cb)
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn set_icon_double_click_callback<F>(&mut self, cb: F) -> Result<(), TIError>
+    where
+        F: Fn() + Send + 'static,
+    {
+        self.0.set_icon_double_click_callback(cb)
+    }
+
     pub fn add_menu_item<F>(&mut self, label: &str, cb: F) -> Result<(), TIError>
     where
         F: Fn() + Send + Sync + 'static,

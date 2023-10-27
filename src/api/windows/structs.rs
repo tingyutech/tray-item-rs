@@ -21,4 +21,8 @@ pub(crate) struct WindowsLoopData {
     pub tx: Sender<WindowsTrayEvent>,
 }
 
-pub(crate) struct WindowsTrayEvent(pub(crate) u32);
+pub(crate) enum WindowsTrayEvent {
+    MenuItem(u32),
+    IconClick,
+    IconDoubleClick,
+}
