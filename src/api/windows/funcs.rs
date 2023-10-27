@@ -4,15 +4,15 @@ use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, LRESULT, POINT},
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        Shell::{NIF_MESSAGE, NIM_ADD, NIF_ICON},
+        Shell::{NIF_ICON, NIF_MESSAGE, NIM_ADD},
         WindowsAndMessaging::{
             CreatePopupMenu, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos,
-            GetMenuItemID, GetMessageW, PostQuitMessage, RegisterClassW, SetForegroundWindow,
-            SetMenuInfo, TrackPopupMenu, TranslateMessage, CW_USEDEFAULT, MENUINFO,
-            MIM_APPLYTOSUBMENUS, MIM_STYLE, MNS_NOTIFYBYPOS, MSG, TPM_BOTTOMALIGN, TPM_LEFTALIGN,
-            TPM_LEFTBUTTON, WM_LBUTTONUP, WM_MENUCOMMAND, WM_QUIT, WM_RBUTTONUP, WM_USER,
-            WNDCLASSW, WS_OVERLAPPEDWINDOW, WM_CREATE, HICON, IDI_APPLICATION, LoadIconW, 
-            RegisterWindowMessageW,
+            GetMenuItemID, GetMessageW, LoadIconW, PostQuitMessage, RegisterClassW,
+            RegisterWindowMessageW, SetForegroundWindow, SetMenuInfo, TrackPopupMenu,
+            TranslateMessage, CW_USEDEFAULT, HICON, IDI_APPLICATION, MENUINFO, MIM_APPLYTOSUBMENUS,
+            MIM_STYLE, MNS_NOTIFYBYPOS, MSG, TPM_BOTTOMALIGN, TPM_LEFTALIGN, TPM_LEFTBUTTON,
+            WM_CREATE, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_MENUCOMMAND, WM_QUIT, WM_RBUTTONUP,
+            WM_USER, WNDCLASSW, WS_OVERLAPPEDWINDOW,
         },
     },
 };
@@ -49,13 +49,36 @@ pub(crate) unsafe extern "system" fn window_proc(
             if let Some(stash) = stash {
                 let menu_id = GetMenuItemID(stash.info.hmenu, w_param as i32) as i32;
                 if menu_id != -1 {
-                    stash.tx.send(WindowsTrayEvent(menu_id as u32)).ok();
+                    stash
+                        .tx
+                        .send(WindowsTrayEvent::MenuItem(menu_id as u32))
+                        .ok();
                 }
             }
         });
     }
 
-    if msg == WM_USER + 1 && (l_param as u32 == WM_LBUTTONUP || l_param as u32 == WM_RBUTTONUP) {
+    if msg == WM_USER + 1 && (l_param as u32 == WM_LBUTTONUP) {
+        WININFO_STASH.with(|stash| {
+            let stash = stash.borrow();
+            let stash = stash.as_ref();
+            if let Some(stash) = stash {
+                stash.tx.send(WindowsTrayEvent::IconClick).ok();
+            }
+        });
+    }
+
+    if msg == WM_USER + 1 && (l_param as u32 == WM_LBUTTONDBLCLK) {
+        WININFO_STASH.with(|stash| {
+            let stash = stash.borrow();
+            let stash = stash.as_ref();
+            if let Some(stash) = stash {
+                stash.tx.send(WindowsTrayEvent::IconDoubleClick).ok();
+            }
+        });
+    }
+
+    if msg == WM_USER + 1 && (l_param as u32 == WM_RBUTTONUP) {
         let mut point = POINT { x: 0, y: 0 };
         if GetCursorPos(&mut point) == 0 {
             return 1;
@@ -85,11 +108,12 @@ pub(crate) unsafe extern "system" fn window_proc(
     }
 
     // If windows explorer restarts and we need to recreate the tray icon
-    if msg == U_TASKBAR_RESTART { 
+    if msg == U_TASKBAR_RESTART {
         let icon: HICON = unsafe {
-            let mut handle = LoadIconW(GetModuleHandleW(std::ptr::null()),
-                to_wstring("tray-default")
-                .as_ptr());
+            let mut handle = LoadIconW(
+                GetModuleHandleW(std::ptr::null()),
+                to_wstring("tray-default").as_ptr(),
+            );
             if handle == 0 {
                 handle = LoadIconW(0, IDI_APPLICATION);
             }
@@ -151,11 +175,12 @@ pub(crate) unsafe fn init_window() -> Result<WindowInfo, TIError> {
     if hwnd == 0 {
         return Err(get_win_os_error("Error creating window"));
     }
-    
+
     let icon: HICON = unsafe {
-        let mut handle = LoadIconW(GetModuleHandleW(std::ptr::null()), 
-            to_wstring("tray-default")
-            .as_ptr());
+        let mut handle = LoadIconW(
+            GetModuleHandleW(std::ptr::null()),
+            to_wstring("tray-default").as_ptr(),
+        );
         if handle == 0 {
             handle = LoadIconW(0, IDI_APPLICATION);
         }
