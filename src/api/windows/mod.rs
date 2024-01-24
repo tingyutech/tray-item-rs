@@ -18,9 +18,9 @@ use windows_sys::Win32::{
     UI::{
         Shell::{Shell_NotifyIconW, NIF_ICON, NIF_TIP, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW},
         WindowsAndMessaging::{
-            InsertMenuItemW, SetMenuItemInfoW, LoadImageW, PostMessageW, HICON, IMAGE_ICON, LR_DEFAULTCOLOR,
-            MENUITEMINFOW, MFS_DISABLED, MFS_UNHILITE, MFT_SEPARATOR, MFT_STRING, MIIM_FTYPE,
-            MIIM_ID, MIIM_STATE, MIIM_STRING, WM_DESTROY,
+            InsertMenuItemW, LoadImageW, PostMessageW, SetMenuItemInfoW, HICON, IMAGE_ICON,
+            LR_DEFAULTCOLOR, MENUITEMINFOW, MFS_DISABLED, MFS_UNHILITE, MFT_SEPARATOR, MFT_STRING,
+            MIIM_FTYPE, MIIM_ID, MIIM_STATE, MIIM_STRING, WM_DESTROY,
         },
     },
 };
@@ -36,6 +36,8 @@ type CallBackEntry = Option<Box<dyn Fn() + Send + 'static>>;
 
 pub struct TrayItemWindows {
     entries: Arc<Mutex<Vec<CallBackEntry>>>,
+    icon_click_cb: Arc<Mutex<CallBackEntry>>,
+    icon_double_click_cb: Arc<Mutex<CallBackEntry>>,
     info: WindowInfo,
     windows_loop: Option<thread::JoinHandle<()>>,
     event_loop: Option<thread::JoinHandle<()>>,
@@ -45,21 +47,43 @@ pub struct TrayItemWindows {
 impl TrayItemWindows {
     pub fn new(title: &str, icon: IconSource) -> Result<Self, TIError> {
         let entries = Arc::new(Mutex::new(Vec::new()));
+        let icon_click_cb = Arc::new(Mutex::new(None));
+        let icon_double_click_cb = Arc::new(Mutex::new(None));
         let (event_tx, event_rx) = channel::<WindowsTrayEvent>();
 
         let entries_clone = Arc::clone(&entries);
+        let icon_click_cb_clone = Arc::clone(&icon_click_cb);
+        let icon_double_click_cb_clone = Arc::clone(&icon_double_click_cb);
         let event_loop = thread::spawn(move || loop {
             if let Ok(v) = event_rx.recv() {
-                if v.0 == u32::MAX {
-                    break;
-                }
+                match v {
+                    WindowsTrayEvent::MenuItem(menu_id) => {
+                        if menu_id == u32::MAX {
+                            break;
+                        }
 
-                padlock::mutex_lock(&entries_clone, |ents: &mut Vec<CallBackEntry>| match &ents
-                    [v.0 as usize]
-                {
-                    Some(f) => f(),
-                    None => (),
-                })
+                        padlock::mutex_lock(&entries_clone, |ents: &mut Vec<CallBackEntry>| {
+                            match &ents[menu_id as usize] {
+                                Some(f) => f(),
+                                None => (),
+                            }
+                        })
+                    }
+                    WindowsTrayEvent::IconClick => padlock::mutex_lock(
+                        &icon_click_cb_clone,
+                        |cb: &mut Option<Box<dyn Fn() + Send>>| match &*cb {
+                            Some(f) => f(),
+                            None => (),
+                        },
+                    ),
+                    WindowsTrayEvent::IconDoubleClick => padlock::mutex_lock(
+                        &icon_double_click_cb_clone,
+                        |cb: &mut Option<Box<dyn Fn() + Send>>| match &*cb {
+                            Some(f) => f(),
+                            None => (),
+                        },
+                    ),
+                }
             }
         });
 
@@ -98,6 +122,8 @@ impl TrayItemWindows {
 
         let w = Self {
             entries,
+            icon_click_cb,
+            icon_double_click_cb,
             info,
             windows_loop: Some(windows_loop),
             event_loop: Some(event_loop),
@@ -111,7 +137,10 @@ impl TrayItemWindows {
     }
 
     pub fn set_icon(&self, icon: IconSource) -> Result<(), TIError> {
-        self.set_icon_from_resource(icon.as_str())
+        match icon {
+            IconSource::Resource(icon_str) => return self.set_icon_from_resource(icon_str),
+            IconSource::RawIcon(raw_icon) => self._set_icon(raw_icon),
+        }
     }
 
     pub fn add_label(&mut self, label: &str) -> Result<(), TIError> {
@@ -161,7 +190,26 @@ impl TrayItemWindows {
             }
         }
         Ok(())
+    }
 
+    pub fn set_icon_click_callback<F>(&mut self, cb: F) -> Result<(), TIError>
+    where
+        F: Fn() + Send + 'static,
+    {
+        padlock::mutex_lock(&self.icon_click_cb, |icon_click_cb| {
+            *icon_click_cb = Some(Box::new(cb));
+        });
+        Ok(())
+    }
+
+    pub fn set_icon_double_click_callback<F>(&mut self, cb: F) -> Result<(), TIError>
+    where
+        F: Fn() + Send + 'static,
+    {
+        padlock::mutex_lock(&self.icon_double_click_cb, |icon_double_click_cb| {
+            *icon_double_click_cb = Some(Box::new(cb));
+        });
+        Ok(())
     }
 
     pub fn add_menu_item<F>(&mut self, label: &str, cb: F) -> Result<(), TIError>
@@ -320,7 +368,9 @@ impl TrayItemWindows {
         }
 
         if let Some(t) = self.event_loop.take() {
-            self.event_tx.send(WindowsTrayEvent(u32::MAX)).ok();
+            self.event_tx
+                .send(WindowsTrayEvent::MenuItem(u32::MAX))
+                .ok();
             t.join().ok();
         }
     }

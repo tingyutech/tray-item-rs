@@ -7,6 +7,8 @@ pub struct TrayItem(api::TrayItemImpl);
 #[derive(Clone)]
 pub enum IconSource {
     Resource(&'static str),
+    #[cfg(target_os = "windows")]
+    RawIcon(windows_sys::Win32::UI::WindowsAndMessaging::HICON),
     #[cfg(all(target_os = "linux", feature = "ksni"))]
     Data {
         height: i32,
@@ -36,6 +38,22 @@ impl TrayItem {
 
     pub fn add_label(&mut self, label: &str) -> Result<(), TIError> {
         self.0.add_label(label)
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn set_icon_click_callback<F>(&mut self, cb: F) -> Result<(), TIError>
+    where
+        F: Fn() + Send + 'static,
+    {
+        self.0.set_icon_click_callback(cb)
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn set_icon_double_click_callback<F>(&mut self, cb: F) -> Result<(), TIError>
+    where
+        F: Fn() + Send + 'static,
+    {
+        self.0.set_icon_double_click_callback(cb)
     }
 
     pub fn add_menu_item<F>(&mut self, label: &str, cb: F) -> Result<(), TIError>
