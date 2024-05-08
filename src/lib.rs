@@ -40,7 +40,7 @@ impl TrayItem {
         self.0.add_label(label)
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub fn set_icon_click_callback<F>(&mut self, cb: F) -> Result<(), TIError>
     where
         F: Fn() + Send + 'static,
@@ -48,7 +48,7 @@ impl TrayItem {
         self.0.set_icon_click_callback(cb)
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub fn set_icon_double_click_callback<F>(&mut self, cb: F) -> Result<(), TIError>
     where
         F: Fn() + Send + 'static,
